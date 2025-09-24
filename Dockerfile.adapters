@@ -1,0 +1,32 @@
+# Dockerfile for AMP Adapters
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install pnpm
+RUN npm install -g pnpm
+
+# Copy package files
+COPY adapters/package.json adapters/pnpm-lock.yaml ./
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile
+
+# Copy source code
+COPY adapters/src ./src
+COPY adapters/tsconfig.json ./
+
+# Build the application
+RUN pnpm build
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs
+RUN adduser -S nodeuser -u 1001
+
+USER nodeuser
+
+# Expose ports for the adapters
+EXPOSE 7401 7402 7403 7404 7405 7406
+
+# Default command
+CMD ["node", "dist/server.js"]

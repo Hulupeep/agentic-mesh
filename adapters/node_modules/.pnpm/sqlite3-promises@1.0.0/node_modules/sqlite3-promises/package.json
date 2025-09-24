@@ -1,0 +1,12 @@
+{
+  "name": "sqlite3-promises",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "keywords": ["sqlite3", "promises"],
+  "author": "Brian Hammond <brian@fictorial.com>",
+  "license": "MIT",
+  "dependencies": {
+    "sqlite3": "^3.1.8"
+  }
+}

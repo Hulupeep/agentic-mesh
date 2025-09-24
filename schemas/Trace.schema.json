@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Trace",
+  "description": "Trace event for AMP execution",
+  "type": "object",
+  "required": ["plan_id", "step_id", "ts", "event_type"],
+  "properties": {
+    "plan_id": {
+      "type": "string"
+    },
+    "step_id": {
+      "type": "string"
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": ["step_start", "step_end", "tool_invoke", "constraint_check", "policy_violation", "evidence_check", "memory_op"]
+    },
+    "cost_usd": {
+      "type": "number",
+      "minimum": 0
+    },
+    "tokens_in": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "tokens_out": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "citations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "signature": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

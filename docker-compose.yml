@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  kernel:
+    build:
+      context: .
+      dockerfile: Dockerfile.kernel
+    ports:
+      - "7777:7777"
+    depends_on:
+      - adapters
+    environment:
+      - RUST_LOG=info
+    command: ["ampctl"]
+
+  adapters:
+    build:
+      context: .
+      dockerfile: Dockerfile.adapters
+    ports:
+      - "7401:7401"
+      - "7402:7402" 
+      - "7403:7403"
+      - "7404:7404"
+      - "7405:7405"
+      - "7406:7406"
+    environment:
+      - NODE_ENV=production

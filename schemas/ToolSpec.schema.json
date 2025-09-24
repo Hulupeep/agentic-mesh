@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ToolSpec",
+  "description": "Specification for an AMP tool",
+  "type": "object",
+  "required": ["name", "io"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Unique name of the tool"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of the tool"
+    },
+    "io": {
+      "type": "object",
+      "required": ["input", "output"],
+      "properties": {
+        "input": {
+          "$ref": "#/definitions/Schema"
+        },
+        "output": {
+          "$ref": "#/definitions/Schema"
+        }
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "properties": {
+        "input_tokens_max": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "latency_p50_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cost_per_call_usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "rate_limit_qps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "side_effects": {
+          "type": "boolean"
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "attribution_required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "properties": {
+        "freshness_window": {
+          "type": "string",
+          "pattern": "^P([0-9]+Y)?([0-9]+M)?([0-9]+D)?(T([0-9]+H)?([0-9]+M)?([0-9]+S)?)?$"
+        },
+        "coverage_tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "deny_if": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "Schema": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/Schema"
+          }
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "items": {
+          "$ref": "#/definitions/Schema"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "signals": {
+    "latency_budget_ms": 5000,
+    "cost_cap_usd": 1.0,
+    "risk": 0.1
+  },
+  "nodes": [
+    {
+      "id": "search_refund_policy",
+      "op": "call",
+      "tool": "doc.search.local",
+      "args": {
+        "q": "refund policy",
+        "k": 8
+      },
+      "out": {
+        "hits1": "result.hits"
+      }
+    },
+    {
+      "id": "verify_refund_claim",
+      "op": "call",
+      "tool": "ground.verify",
+      "args": {
+        "claims": ["Refund policy is 30 days"],
+        "sources": "$hits1"
+      },
+      "out": {
+        "ev1": "result"
+      }
+    },
+    {
+      "id": "check_confidence",
+      "op": "assert",
+      "args": {
+        "condition": "mean($ev1.verdicts[0].confidence) >= 0.9"
+      }
+    },
+    {
+      "id": "write_refund_faq",
+      "op": "call",
+      "tool": "mesh.mem.sqlite",
+      "args": {
+        "operation": "write",
+        "key": "faq.refunds.current",
+        "value": {"days": 30},
+        "provenance": "$ev1.supports",
+        "confidence": "$ev1.verdicts[0].confidence",
+        "ttl": "P180D"
+      },
+      "out": {
+        "memory_result": "result"
+      }
+    },
+    {
+      "id": "synthesize_answer",
+      "op": "reduce",
+      "args": {
+        "collection": "$hits1",
+        "operation": "concat"
+      },
+      "out": {
+        "final_answer": "result"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "search_refund_policy",
+      "to": "verify_refund_claim"
+    },
+    {
+      "from": "verify_refund_claim",
+      "to": "check_confidence"
+    },
+    {
+      "from": "check_confidence",
+      "to": "write_refund_faq"
+    },
+    {
+      "from": "write_refund_faq",
+      "to": "synthesize_answer"
+    }
+  ],
+  "stop_conditions": {
+    "max_nodes": 10,
+    "min_confidence": 0.8
+  }
+}
