@@ -2,25 +2,34 @@
 
 [![CI](https://github.com/acme/amp/actions/workflows/ci.yml/badge.svg)](https://github.com/acme/amp/actions/workflows/ci.yml)
 
-## Why AMP
+## The Problem We Are Solving
 
-Teams are building agent flows with ad hoc scripts and chained prompts. The usual pain points are:
+Most agent stacks grew out of prototype scripts. They rely on prompt chains and glue code that hide the real workflow, so teams struggle to answer basic questions: Which tool version ran? Did we stay inside the budget? Why did yesterday’s output differ from today’s? As flows grow, each fix is a one-off patch and every new agent increases the blast radius.
 
-- Execution paths live in code that is hard to read or review.
-- Tool contracts are informal, so one change breaks many flows.
-- Budgets for cost, latency, or tokens are monitored manually, if at all.
-- Evidence and memory are stored without provenance, making it hard to trust results.
+This is especially painful for teams trying to ship AI SaaS. Customers expect deterministic behaviour, cost controls, and verifiable outputs, but current frameworks offer few guardrails. Without a shared contract for tools and plans, it is hard to onboard vendors, add monitoring, or let the system improve itself safely (see `prd_self_evovolving.md`).
 
 ## Mission
 
-AMP exists to make multi-step AI work repeatable, auditable, and predictable. Plans should read like a blueprint, tools should declare their contract, and every run should leave evidence that can be checked later.
+AMP exists to make multi-step AI work repeatable, auditable, and predictable. Plans should read like a blueprint, tools should declare their contract, and every run should leave evidence that can be checked later—so a product team can operate, monitor, and evolve an agentic SaaS with confidence.
 
-## What AMP Is
+## Approach: Protocol + Implementation
 
 AMP is both a protocol and a working implementation.
 
 - **Protocol**: A set of JSON schemas that define plans, tools, evidence, memory entries, and policy artefacts. These schemas describe how any compliant runtime should talk about workflows and results.
 - **Implementation**: A Rust kernel and TypeScript adapters that execute those schemas. The kernel schedules plans, enforces budgets, verifies evidence, and writes trace data. Adapters expose real tools behind a consistent HTTP surface.
+
+The protocol gives teams a stable interface for tools and plans; the implementation shows how to build deterministic orchestration on top of it.
+
+## Building Agentic SaaS with AMP
+
+The roadmap in `prd_self_evovolving.md` treats an agent platform like any other production service: observe → diagnose → propose → validate. AMP provides the raw materials for that loop:
+
+- Plans are explicit artifacts that can be diffed, reviewed, and regenerated.
+- ToolSpecs capture cost, latency, and policy hints so the platform can choose providers automatically.
+- Trace, evidence, and policy outputs form the audit trail needed for automated change management.
+
+This combination lets a SaaS team introduce guardrails first, and then add self-improving behaviour when they are ready.
 
 ## Overview
 
@@ -36,6 +45,7 @@ The reference implementation runs Plan IR (declarative JSON) against ToolSpecs d
 - **Policy Engine**: Configurable policy enforcement for safety and reliability
 - **Capability Routing**: Plans can target capabilities; the kernel selects compliant tools deterministically and records the routing decision.
 - **Plan Optimiser**: A deterministic pass that reorders independent steps using ToolSpec telemetry and emits trace events for audit.
+- **Self-Evolution Hooks**: Telemetry, evidence, and policy outputs are structured so higher-level services (e.g. the self-evolving loop in `prd_self_evovolving.md`) can propose, validate, and ship changes without manual babysitting.
 
 ## Quickstart in 90 Seconds
 
