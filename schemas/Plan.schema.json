@@ -65,6 +65,9 @@
         "tool": {
           "type": "string"
         },
+        "capability": {
+          "type": "string"
+        },
         "args": {
           "type": "object",
           "additionalProperties": true
@@ -81,7 +84,24 @@
             "type": "string"
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "enum": ["call", "map", "reduce", "mem.read", "mem.write", "verify", "retry"]
+              }
+            }
+          },
+          "then": {
+            "anyOf": [
+              { "required": ["tool"] },
+              { "required": ["capability"] }
+            ]
+          }
+        }
+      ]
     },
     "Edge": {
       "type": "object",

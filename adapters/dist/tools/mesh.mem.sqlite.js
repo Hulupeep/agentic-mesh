@@ -104,6 +104,12 @@ exports.meshMemSqlite = {
             }
         }
     },
+    capabilities: ['memory.read', 'memory.write', 'memory.forget'],
+    constraints: {
+        latency_p50_ms: 80,
+        cost_per_call_usd: 0.00005,
+        side_effects: false
+    },
     invoke: async (args) => {
         if (!db) {
             await initializeDB();

@@ -1,0 +1,271 @@
+# AMP Self‑Evolving Orchestration — Product Requirements Document (PRD) v2
+
+## 0) Problem & Mission
+
+**Problem we’re solving:** Modern AI features are fragile: they hallucinate, drift in cost/latency, and silently degrade because they can’t *sense and adapt* reliably. Teams end up rebuilding bespoke RAG pipelines that are hard to audit and expensive to maintain.
+
+**Mission:** Equip **any software** to **self‑evolve** based on **outer awareness** (changes in data, sources, environments, users) and **inner awareness** (its own traces, SLOs, costs)—via a small, auditable loop: **observe → diagnose → propose → validate → deploy → rollback**.
+
+**Why this matters:** Products that adapt themselves reduce maintenance toil, stabilize margins, and earn trust with verifiable answers and auditable change.
+
+## 1) Executive Summary
+
+**What we’re building:** A **self‑evolving**, grounded‑answer orchestration layer ("AMP") where **plans are code**, **tools are the ABI**, **evidence is the quality gate**, and **memory is gated state**. AMP doesn’t just heal regressions; it continuously **observes → diagnoses → proposes → validates → deploys → rolls back** (ODPVD‑R) within policy guardrails so reliability, cost, and latency improve over time.
+
+**Primary wedge:** “Grounded Answers” for SMEs — a drop‑in widget/API that guarantees *citations or free* and maintains SLOs through self‑evolution.
+
+**Why now:** Agentic apps are growing but remain untrusted, costly, and fragile. AMP standardizes the contracts, evidence, and budgets needed to make AI reliable enough for business.
+
+## 2) Problem Statement
+
+Current AI assistants:
+
+- Hallucinate or give **uncited** claims → legal, support, and brand risk.
+- Depend on brittle **RAG pipelines** with hidden glue → hard to observe, expensive to maintain.
+- Exhibit **cost/latency drift** → unpredictable margins.
+- Accumulate **unproven memory** → compounding errors.
+
+**We need:** A simple, portable way to *prove answers, enforce budgets, and self‑evolve quality* without hand‑crafted pipelines per use case.
+
+## 3) Goals & Non‑Goals
+
+**Goals**
+
+1. Produce *grounded*, **cited** answers with measurable confidence.
+2. Keep p50/p95 latency and cost per verified answer inside budget caps.
+3. Detect quality drift (contradictions, citation drop) and **self‑evolve** via safe, policy‑gated adjustments.
+4. Provide **auditability**: signed traces, replay bundles, and per‑tenant SLO dashboards.
+5. Ship a billable **SaaS wedge** (“Grounded Answers”) in ≤ 2 weeks.
+
+### Self‑Evolution Objectives
+
+- Detect quality/cost/latency drift and restore SLOs autonomously using small, policy‑bounded adjustments.
+- Learn per‑intent **fast paths** and budgets from traces while preserving auditability and brand safety.
+- Propose changes as **typed artifacts** with expected impact and rollback rules; auto‑apply only for low‑risk classes.
+
+**Non‑Goals**
+
+- Not replacing LangChain/LlamaIndex/MCP; we **layer** on them.
+- Not guaranteeing bit‑perfect determinism; we target **deterministic‑enough** decisions & provenance.
+- Not building a general knowledge graph; we store **proven, scoped memory**.
+
+## 4) Personas & Jobs‑To‑Be‑Done
+
+- **Support Lead (SME):** Reduce escalations and response time; demand *cited*, policy‑safe answers.
+- **PM/Founder (SME):** Ship a reliable assistant fast; keep costs predictable; show ROI.
+- **Compliance/Legal (Mid‑market):** Require evidence and audit trails; block risky outputs.
+- **SRE/Ops:** Want incident runbooks with citations; lower MTTR with verifiable steps.
+
+## 5) Value Proposition & Business Outcomes
+
+- **Trust:** Evidence‑backed answers reduce rework and liability.
+- **Predictability:** Budgets as inputs → stable margins.
+- **Velocity:** Reusable plans replace bespoke pipelines.
+- **Autonomy:** Self‑evolution reduces manual maintenance.
+
+**Business KPIs (90‑day targets)**
+
+- Deflection rate ↑ 20–35% (vs. baseline chatbot).
+- Cost per verified answer ↓ ≥ 15% after caching.
+- Citation rate ≥ 90%; Contradiction rate ≤ 3%.
+- p95 latency ≤ 2.0s for the “Grounded Answers” flow.
+
+## 6) Scope (MVP Feature Set)
+
+1. **Grounded Answer Plan**: search → verify (citations/contradictions) → synthesize → memory write (gated by policy).
+2. **Budgets**: per‑request caps for latency and spend.
+3. **Signed Traces & Replay**: per‑step events + downloadable bundle.
+4. **SLO Dashboard**: citation rate, GQS, contradictions, p50/p95, cost/answer.
+5. **Self‑Evolving Mode (Beta)**:
+   - **Drift detection** (citation drop, contradiction rise, p95/cost breaches) with tenant‑scoped SLOs.
+   - **Change‑Proposal artifact** (ID, scope, diff, rationale, expected deltas, risk class, rollback rules).
+   - **Critic & Optimizer** roles (propose parameter tweaks, query strategies, cache TTLs, source freshness prefs).
+   - **Validation harness** (Shadow and/or A‑B) with pass criteria (e.g., GQS +≥8% or p95 −35% at ≤ +5% cost).
+   - **Risk & approvals**: Low = auto‑apply; Medium/High = human approval with change window; full audit log.
+   - **Human override**: Emergency stop halts self‑mod, reverts to last known‑good plan.
+6. **Admin**: connect sources, set policies (min confidence, citation rules), view audits.
+
+**Out of Scope (MVP)**
+
+- Zero‑knowledge proofs, TEEs, enterprise SSO.
+- Complex multi‑agent swarm roles beyond a single planner + critic/optimizer.
+
+## 7) Key User Journeys (MVP)
+
+**A) Support Lead answers a “Refunds” question**
+
+1. Customer asks: “What’s your refund policy?”
+2. Plan runs: search docs → verify claim → synthesize → return answer **with citations**.
+3. Memory stores `{days: 30}` only if evidence ≥ threshold.
+4. SLO dashboard updates; trace and replay bundle available.
+
+**B) Self‑Evolve triggers due to drift**
+
+1. Citation rate drops below 85% over 1h window.
+2. System proposes: tighten citation threshold and broaden search.
+3. Shadow test shows GQS +8%, p95 −35%, cost +3% → auto‑apply (low‑risk class).
+4. Rollback if post‑apply GQS < 0.78 or contradictions > 5%.
+
+## 8) Functional Requirements
+
+- **FR‑1**: Produce answers with citations when sources require attribution.
+- **FR‑2**: Block or degrade answers when confidence < policy threshold.
+- **FR‑3**: Persist memory only when evidence ≥ policy; attach provenance & TTL.
+- **FR‑4**: Enforce per‑request budgets for latency & cost; log breaches.
+- **FR‑5**: Emit signed traces; provide replay bundle download.
+- **FR‑6**: Detect drift against SLOs and propose safe changes (Self‑Evolving Mode).
+- **FR‑7**: Validate proposed changes via Shadow/A‑B; auto‑apply only for low‑risk classes.
+- **FR‑8**: Admin can set policies, view SLOs, approve high‑risk changes, and export audits.
+
+## 9) Non‑Functional Requirements (SLOs)
+
+- **Quality**: GQS ≥ 0.80 weekly; Citation rate ≥ 90%; Contradiction ≤ 3%.
+- **Latency**: p50 ≤ 800ms, p95 ≤ 2.0s (Grounded Answers plan, 90th percentile tenant load).
+- **Cost**: Cost/verified answer within ±10% of baseline after 7‑day cache warm‑up.
+- **Availability**: 99.5% monthly for API; degraded mode must fail closed (no uncited claims).
+- **Auditability**: 100% of answers traceable with signed events; 100% of changes linked to validation runs.
+
+## 10) Metrics & Acceptance Criteria
+
+**Launch‑blockers (must pass before GA)**
+
+- AC‑1: On 175‑question test set (real+edge+adversarial), AMP beats baseline on GQS by ≥ +15% absolute.
+- AC‑2: Citation rate ≥ 90%; contradiction rate ≤ 3%.
+- AC‑3: p95 latency improvement ≥ −35% in at least one validated self‑evolving scenario.
+- AC‑4: Memory writes rejected when evidence < threshold (0% false accepts on test set).
+- AC‑5: Replay bundle reproduces decisions, citations, and budget adherence.
+
+**Ongoing health**
+
+- Weekly: >95% of answers carry valid citations when required.
+- Drift alarms fire within 10 minutes of SLO breach; proposal generated within 15 minutes.
+- **Self‑healing activity:** ≥ 1 validated low‑risk auto‑change per active tenant per week.
+
+## 11) Self‑Evolving & Self‑Healing Operating Model
+
+- **Observe**: Collect signed traces → compute SLOs (GQS, citation rate, contradiction rate, p50/p95, cost/answer).
+- **Diagnose**: Detect drifts vs targets (e.g., citation rate < 85% for 15 min; p95 > target + 25% for 10 min; contradictions > 5%).
+- **Propose**: Emit a **Change‑Proposal** (typed diff) with expected impact, risk class, and rollback plan.
+- **Validate**: Run **Shadow** and/or **A‑B**; require minimum uplifts (e.g., GQS +8% absolute OR p95 −35% with ≤ +10% cost delta).
+- **Deploy**: Auto‑apply **Low‑risk** changes; require approval for **Medium/High**.
+- **Rollback**: Revert automatically if post‑deploy SLOs degrade (e.g., GQS < 0.78 or contradictions > 5%).
+
+**Adjustable knobs (catalog):** retrieval breadth (k), breadth‑then‑depth queries, rerank on/off, citation threshold, contradiction tolerance, cache TTL & eviction (LFU), per‑intent budgets, source freshness preference, backend failovers.
+
+**Risk & approvals:** Low (auto), Medium (approve), High (approve + window). **Human override** available at all times.
+
+**Memory hygiene:** write gates by evidence; provenance + TTL required; quarantine suspected facts; periodic contradiction sweeps.
+
+**Cost/latency governors:** budgets as inputs; fast‑path caches; graceful degradation policy when caps can’t be met.
+
+**Validation rubrics:** p95 uplift ≥ −35% *or* GQS +≥8% at ≤ +10% cost; citation ≥ 90%; contradictions ≤ 3% in validation sample.
+
+**Example self‑evolves:**
+
+- *Source drift*: tighten citation threshold, prefer newer stamps → contradictions drop to ≤3%.
+- *Backend slowdown*: cut k, switch to breadth‑then‑depth, enable local FTS failover → p95 −35%.
+
+## 12) Data, Privacy, and Compliance
+
+- **Provenance first**: store citations/links with each persisted fact.
+- **Tenant isolation**: memory and indexes scoped per tenant.
+- **TTL & right‑to‑forget**: configurable per memory type.
+- **Fail‑closed**: if evidence missing or policy undecidable, do not answer affirmatively.
+
+## 13) Observability & Audits
+
+- **Signed traces** per step; export as NDJSON.
+- **SLO dashboard** with drill‑downs by intent, source, and time.
+- **Replay bundles** to reproduce decisions and budget adherence.
+- **Change log** linking proposals → validation → decisions.
+
+## 14) Rollout Plan & Milestones
+
+- **M0 (Week 1)**: Grounded Answers plan + citations + budgets + traces; manual dashboards.
+- **M1 (Week 2)**: Self‑Evolving Mode Beta (critic + proposals + Shadow validation + limited auto‑apply); Admin app; first SME pilots.
+- **M2 (Week 4–6)**: Multi‑tenant billing; SLA reports; medium‑risk human approval flow; case studies; GA.
+
+## 15) Pricing & Packaging (Wedge)
+
+- **Starter** €49/mo: 1 source, 1k verified answers, basic dashboard.
+- **Pro** €199/mo: 5 sources, 10k answers, Self‑Evolving Beta, audits.
+- **Business** custom: SSO, advanced policies, premium support, SLAs.
+- **Guarantee**: *Citations or free.*
+
+## 16) Risks & Blind Spots (and Mitigations)
+
+1. **Self‑modification risk**: Unbounded change proposals could degrade quality.
+   - *Mitigation*: Typed change proposals; risk tiers; Shadow/A‑B validation; approvals; auto‑rollback.
+2. **Memory poisoning**: Persisting incorrect facts compounds errors.
+   - *Mitigation*: Evidence thresholds; source trust scores; TTL; contradiction sweeps.
+3. **Cost creep**: More retries/broader search inflate spend.
+   - *Mitigation*: Budgets as inputs; cache fast paths; LFU eviction; per‑tenant caps; alerts.
+4. **Latency regressions**: Wider search/rerank slows responses.
+   - *Mitigation*: p95 guardrail; adaptive ‘breadth‑then‑depth’ strategy; failover to cached summaries with disclaimer.
+5. **Audit gaps**: Missing traces erode trust.
+   - *Mitigation*: Signed, mandatory traces; health checks; red alarms on trace write failures.
+6. **Human override debt**: Too many approvals slow delivery.
+   - *Mitigation*: Calibrate risk classes; batch reviews; clear windows; delegate approvals to domains.
+
+## 17) Validation Plan (Proof, not philosophy)
+
+- **Dataset**: 100 real customer questions, 50 edge, 25 adversarial for one tenant.
+- **Baseline**: existing chatbot or RAG.
+- **Policies**: min_confidence = 0.90; cite_if_confidence_below = 0.95; block_if_conflict_over = 0.30.
+- **Success**:
+  - GQS +≥15% vs baseline;
+  - citation rate ≥ 90%;
+  - contradiction ≤ 3%;
+  - p95 ≤ 2.0s, and show at least one validated self‑evolve with **p95 −35%**;
+  - cost/verified answer ≤ baseline ±10% after caching.
+- **Audit**: 50‑answer manual citation spot‑check; provide replay bundle; publish before/after table.
+
+## 18) Roadmap (Beyond MVP)
+
+- **v0.2**: Fast‑path plan cache; per‑intent budgets; richer critic signals (freshness, source churn).
+- **v0.3**: Team features (roles/approvals), enterprise connectors, data residency.
+- **v0.4**: Evidence attestation (TEE/ZK options), marketplace of vetted tools with SLAs.
+- **v0.5**: Multi‑agent patterns (planner/critic/builder/verifier), runbook orchestrations.
+
+## 19) Open Questions
+
+- What risk threshold requires legal/compliance sign‑off for specific domains?
+- How do we balance aggressive self‑evolution vs. brand tone stability in answers?
+- Which “interesting failures” should show to end users vs. silently self‑heal?
+
+## 19.1) Meta‑Governance: PRD Evolution Rules
+
+- If any core SLO (citation rate, contradictions, p95, cost/answer) misses target for **2 consecutive weeks**, add a backlog item to revise policies or add an adjustable knob; prioritize in the next sprint.
+- If **>3 emergency stops** occur in a week, freeze auto‑apply to Low‑risk only and require human review for Medium until stability returns for 7 days.
+- If validation throughput < 80% of proposals per week, increase Shadow sample size automation and reduce proposal rate caps.
+- Publish a **PRD change note** with each policy update, linking to validation runs and traces.
+
+## 20) Glossary
+
+- **GQS (Grounding Quality Score)**: Composite metric = coverage × mean confidence × (1 − contradiction penalty).
+- **SLO (Service Level Objective)**: Target for a metric (e.g., citation rate ≥ 90%).
+- **Shadow (test)**: Run proposed changes on a mirror workload; not user‑visible.
+- **A‑B (test)**: Compare control vs. candidate on real traffic slices.
+- **LFU (Least Frequently Used)**: Cache eviction favoring rarely used items for removal.
+- **TTL (Time To Live)**: Expiry horizon for memory entries.
+- **p50/p95 latency**: 50th/95th percentile response time.
+- **Contradiction rate**: % of answers citing conflicting sources.
+- **Citation rate**: % of answers with at least one correct citation when required.
+- **Confidence (evidence)**: Score [0–1] reflecting strength of support from sources.
+- **Replay bundle**: Package of plan, versions, traces enabling run reconstruction.
+- **Self‑evolving**: Automatic, policy‑gated changes that **improve** SLOs (not just restore).
+- **Self‑healing**: Automatic, policy‑gated changes that **restore** SLOs after regressions.
+- **Change‑Proposal**: Typed suggestion to modify plan/tool/policy with expected impact and rollback rules.
+- **ODPVD‑R**: Observe → Diagnose → Propose → Validate → Deploy → Rollback loop for safe self‑evolution.
+- **Fast‑path**: Cached plan macro for common intents meeting SLOs at lower cost/latency.
+- **Degradation policy**: Pre‑approved reduced behavior when budgets can’t be met (e.g., shorter cited answer or “can’t verify”).
+- **Plan Macro**: Reusable plan template specialized by intent/tenant.
+
+## 21) Success Criteria (90‑day)
+
+- 5 paying SMEs on Starter/Pro; two public case studies.
+- Achieve >90% citation rate and ≤3% contradictions across tenants.
+- Demonstrate at least 1 self‑evolving improvement of **p95 −35%** in production.
+- Support workload deflection ↑ ≥ 25% versus baseline.
+
+**TL;DR:** Pipelines are fragile. AMP makes answers provable, costs predictable, and quality **self‑evolving** — a small contract that turns agentic apps into reliable products you can charge for.

@@ -5,6 +5,7 @@ export interface ToolSpec {
         input: any;
         output: any;
     };
+    capabilities?: string[];
     constraints?: {
         input_tokens_max?: number;
         latency_p50_ms?: number;

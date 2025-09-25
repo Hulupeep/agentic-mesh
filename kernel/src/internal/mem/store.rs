@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use crate::internal::evidence::verify::Evidence;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryEntry {
@@ -23,7 +22,11 @@ impl MemoryStore {
         }
     }
 
-    pub async fn read(&self, memory_url: &str, key: &str) -> Result<Option<MemoryEntry>, MemoryError> {
+    pub async fn read(
+        &self,
+        memory_url: &str,
+        key: &str,
+    ) -> Result<Option<MemoryEntry>, MemoryError> {
         let response = self
             .client
             .post(format!("{}/invoke", memory_url))
@@ -40,10 +43,16 @@ impl MemoryStore {
             .await
             .map_err(|e| MemoryError::Communication(e.to_string()))?;
 
-        if result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
-            if let Some(value) = result.get("value") {
-                // For now, return a simple memory entry with the value
-                // In a full implementation, we'd parse all fields properly
+        let payload = result.get("result").unwrap_or(&result);
+
+        if payload
+            .get("success")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            if let Some(entry) = payload.get("entry") {
+                Ok(Some(self.parse_entry(key, entry)?))
+            } else if let Some(value) = payload.get("value") {
                 Ok(Some(MemoryEntry {
                     key: key.to_string(),
                     value: value.clone(),
@@ -56,7 +65,7 @@ impl MemoryStore {
                 Ok(None)
             }
         } else {
-            Ok(None) // Key not found
+            Ok(None)
         }
     }
 
@@ -96,10 +105,17 @@ impl MemoryStore {
             .await
             .map_err(|e| MemoryError::Communication(e.to_string()))?;
 
-        if result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+        let payload = result.get("result").unwrap_or(&result);
+
+        if payload
+            .get("success")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             Ok(())
         } else {
-            let message = result.get("message")
+            let message = payload
+                .get("message")
                 .and_then(|v| v.as_str())
                 .unwrap_or("Unknown error");
             Err(MemoryError::StorageError(message.to_string()))
@@ -123,10 +139,17 @@ impl MemoryStore {
             .await
             .map_err(|e| MemoryError::Communication(e.to_string()))?;
 
-        if result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+        let payload = result.get("result").unwrap_or(&result);
+
+        if payload
+            .get("success")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             Ok(())
         } else {
-            let message = result.get("message")
+            let message = payload
+                .get("message")
                 .and_then(|v| v.as_str())
                 .unwrap_or("Unknown error");
             Err(MemoryError::StorageError(message.to_string()))
@@ -143,12 +166,14 @@ impl MemoryStore {
     ) -> Result<(), MemoryError> {
         // Validate the evidence before writing
         let verifier = crate::internal::evidence::verify::EvidenceVerifier;
-        verifier.validate_evidence_for_storage(evidence, min_confidence)
+        verifier
+            .validate_evidence_for_storage(evidence, min_confidence)
             .map_err(|e| MemoryError::EvidenceValidation(e.to_string()))?;
 
         // Extract provenance from evidence if available
         let provenance = evidence.verdicts.as_ref().map(|verdicts| {
-            verdicts.iter()
+            verdicts
+                .iter()
                 .filter_map(|v| {
                     if v.needs_citation {
                         Some(v.claim_id.clone())
@@ -163,7 +188,54 @@ impl MemoryStore {
         let verification_result = verifier.verify_evidence(evidence);
         let confidence = Some(verification_result.mean_confidence);
 
-        self.write(memory_url, key, value, provenance.as_ref(), confidence, None).await
+        self.write(
+            memory_url,
+            key,
+            value,
+            provenance.as_ref(),
+            confidence,
+            None,
+        )
+        .await
+    }
+
+    fn parse_entry(
+        &self,
+        key: &str,
+        entry: &serde_json::Value,
+    ) -> Result<MemoryEntry, MemoryError> {
+        let value = entry.get("value").cloned().ok_or_else(|| {
+            MemoryError::StorageError("Missing value in memory entry".to_string())
+        })?;
+
+        let provenance = entry
+            .get("provenance")
+            .and_then(|p| p.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            });
+
+        let confidence = entry.get("confidence").and_then(|c| c.as_f64());
+        let ttl = entry
+            .get("ttl")
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string());
+        let timestamp = entry
+            .get("timestamp")
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+
+        Ok(MemoryEntry {
+            key: key.to_string(),
+            value,
+            provenance,
+            confidence,
+            ttl,
+            timestamp,
+        })
     }
 }
 

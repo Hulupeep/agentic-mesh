@@ -121,15 +121,16 @@ exports.docSearchLocal = {
                             required: ['id', 'uri', 'score', 'snippet', 'stamp']
                         }
                     }
-                },
-                required: ['hits']
-            }
         },
-        constraints: {
-            input_tokens_max: 512,
-            latency_p50_ms: 120,
-            cost_per_call_usd: 0.0001,
-            rate_limit_qps: 50,
+        required: ['hits']
+        }
+    },
+    capabilities: ['search.documents'],
+    constraints: {
+        input_tokens_max: 512,
+        latency_p50_ms: 120,
+        cost_per_call_usd: 0.0001,
+        rate_limit_qps: 50,
             side_effects: false
         },
         provenance: {

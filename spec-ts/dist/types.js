@@ -10,6 +10,7 @@ exports.ToolSpecSchema = zod_1.z.object({
         input: zod_1.z.record(zod_1.z.any()),
         output: zod_1.z.record(zod_1.z.any()),
     }),
+    capabilities: zod_1.z.array(zod_1.z.string()).optional(),
     constraints: zod_1.z.object({
         input_tokens_max: zod_1.z.number().int().nonnegative().optional(),
         latency_p50_ms: zod_1.z.number().int().nonnegative().optional(),
@@ -28,6 +29,23 @@ exports.ToolSpecSchema = zod_1.z.object({
         deny_if: zod_1.z.array(zod_1.z.string()).optional(),
     }).optional(),
 });
+const toolRequiredOps = new Set(['call', 'map', 'reduce', 'verify', 'mem.read', 'mem.write', 'retry']);
+const PlanNodeSchema = zod_1.z.object({
+    id: zod_1.z.string(),
+    op: zod_1.z.enum(['call', 'map', 'reduce', 'branch', 'assert', 'spawn', 'mem.read', 'mem.write', 'verify', 'retry']),
+    tool: zod_1.z.string().optional(),
+    capability: zod_1.z.string().optional(),
+    args: zod_1.z.record(zod_1.z.any()).optional(),
+    bind: zod_1.z.record(zod_1.z.string()).optional(),
+    out: zod_1.z.record(zod_1.z.string()).optional(),
+}).superRefine((node, ctx) => {
+    if (toolRequiredOps.has(node.op) && !node.tool && !node.capability) {
+        ctx.addIssue({
+            code: zod_1.z.ZodIssueCode.custom,
+            message: `Node ${node.id} requires either a tool or capability`,
+        });
+    }
+});
 // Plan Schema
 exports.PlanSchema = zod_1.z.object({
     signals: zod_1.z.object({
@@ -35,14 +53,7 @@ exports.PlanSchema = zod_1.z.object({
         cost_cap_usd: zod_1.z.number().nonnegative().optional(),
         risk: zod_1.z.number().min(0).max(1).optional(),
     }).optional(),
-    nodes: zod_1.z.array(zod_1.z.object({
-        id: zod_1.z.string(),
-        op: zod_1.z.enum(['call', 'map', 'reduce', 'branch', 'assert', 'spawn', 'mem.read', 'mem.write', 'verify', 'retry']),
-        tool: zod_1.z.string().optional(),
-        args: zod_1.z.record(zod_1.z.any()).optional(),
-        bind: zod_1.z.record(zod_1.z.string()).optional(),
-        out: zod_1.z.record(zod_1.z.string()).optional(),
-    })),
+    nodes: zod_1.z.array(PlanNodeSchema),
     edges: zod_1.z.array(zod_1.z.object({
         from: zod_1.z.string(),
         to: zod_1.z.string(),
@@ -88,7 +99,7 @@ exports.TraceSchema = zod_1.z.object({
     plan_id: zod_1.z.string(),
     step_id: zod_1.z.string(),
     ts: zod_1.z.string().datetime(),
-    event_type: zod_1.z.enum(['step_start', 'step_end', 'tool_invoke', 'constraint_check', 'policy_violation', 'evidence_check', 'memory_op']),
+    event_type: zod_1.z.enum(['step_start', 'step_end', 'tool_invoke', 'constraint_check', 'policy_violation', 'evidence_check', 'memory_op', 'capability_route', 'plan_optimizer']),
     cost_usd: zod_1.z.number().nonnegative().optional(),
     tokens_in: zod_1.z.number().int().nonnegative().optional(),
     tokens_out: zod_1.z.number().int().nonnegative().optional(),

@@ -12,6 +12,7 @@ export declare const ToolSpecSchema: z.ZodObject<{
         input: Record<string, any>;
         output: Record<string, any>;
     }>;
+    capabilities: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
     constraints: z.ZodOptional<z.ZodObject<{
         input_tokens_max: z.ZodOptional<z.ZodNumber>;
         latency_p50_ms: z.ZodOptional<z.ZodNumber>;
@@ -62,6 +63,7 @@ export declare const ToolSpecSchema: z.ZodObject<{
         output: Record<string, any>;
     };
     description?: string | undefined;
+    capabilities?: string[] | undefined;
     constraints?: {
         input_tokens_max?: number | undefined;
         latency_p50_ms?: number | undefined;
@@ -86,6 +88,7 @@ export declare const ToolSpecSchema: z.ZodObject<{
         output: Record<string, any>;
     };
     description?: string | undefined;
+    capabilities?: string[] | undefined;
     constraints?: {
         input_tokens_max?: number | undefined;
         latency_p50_ms?: number | undefined;
@@ -122,6 +125,7 @@ export declare const PlanSchema: z.ZodObject<{
         id: z.ZodString;
         op: z.ZodEnum<["call", "map", "reduce", "branch", "assert", "spawn", "mem.read", "mem.write", "verify", "retry"]>;
         tool: z.ZodOptional<z.ZodString>;
+        capability: z.ZodOptional<z.ZodString>;
         args: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodAny>>;
         bind: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
         out: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
@@ -129,6 +133,7 @@ export declare const PlanSchema: z.ZodObject<{
         id: string;
         op: "map" | "reduce" | "call" | "branch" | "assert" | "spawn" | "mem.read" | "mem.write" | "verify" | "retry";
         tool?: string | undefined;
+        capability?: string | undefined;
         args?: Record<string, any> | undefined;
         bind?: Record<string, string> | undefined;
         out?: Record<string, string> | undefined;
@@ -136,6 +141,7 @@ export declare const PlanSchema: z.ZodObject<{
         id: string;
         op: "map" | "reduce" | "call" | "branch" | "assert" | "spawn" | "mem.read" | "mem.write" | "verify" | "retry";
         tool?: string | undefined;
+        capability?: string | undefined;
         args?: Record<string, any> | undefined;
         bind?: Record<string, string> | undefined;
         out?: Record<string, string> | undefined;
@@ -322,7 +328,7 @@ export declare const TraceSchema: z.ZodObject<{
     plan_id: z.ZodString;
     step_id: z.ZodString;
     ts: z.ZodString;
-    event_type: z.ZodEnum<["step_start", "step_end", "tool_invoke", "constraint_check", "policy_violation", "evidence_check", "memory_op"]>;
+    event_type: z.ZodEnum<["step_start", "step_end", "tool_invoke", "constraint_check", "policy_violation", "evidence_check", "memory_op", "capability_route", "plan_optimizer"]>;
     cost_usd: z.ZodOptional<z.ZodNumber>;
     tokens_in: z.ZodOptional<z.ZodNumber>;
     tokens_out: z.ZodOptional<z.ZodNumber>;

@@ -99,10 +99,16 @@ exports.groundVerify = {
                             required: ['claim_id', 'verdict', 'confidence', 'needs_citation']
                         }
                     }
-                }
             }
         }
     },
+    capabilities: ['evidence.verify'],
+    constraints: {
+        latency_p50_ms: 200,
+        cost_per_call_usd: 0.0002,
+        side_effects: false
+    }
+},
     invoke: async (args) => {
         const { claims, sources, min_confidence = 0.75 } = args;
         // Calculate average document length for BM25

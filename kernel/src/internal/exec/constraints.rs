@@ -1,6 +1,6 @@
 use crate::internal::{
     plan::ir::{Plan, Signals},
-    tools::spec::{Constraints, ToolSpec},
+    tools::spec::ToolSpec,
 };
 
 #[derive(Debug, Clone)]
@@ -26,19 +26,19 @@ impl Budget {
                 return false;
             }
         }
-        
+
         if let Some(remaining) = self.cost_remaining_usd {
             if remaining <= 0.0 {
                 return false;
             }
         }
-        
+
         if let Some(remaining) = self.tokens_remaining {
             if remaining == 0 {
                 return false;
             }
         }
-        
+
         true
     }
 
@@ -79,15 +79,16 @@ impl Budget {
 pub struct ConstraintChecker;
 
 impl ConstraintChecker {
-    pub fn check_plan_constraints(plan: &Plan, tool_specs: &[ToolSpec]) -> Result<(), ConstraintError> {
+    pub fn check_plan_constraints(
+        plan: &Plan,
+        tool_specs: &[ToolSpec],
+    ) -> Result<(), ConstraintError> {
         // Map tool names to their specs for quick lookup
-        let tool_spec_map: std::collections::HashMap<_, _> = tool_specs
-            .iter()
-            .map(|spec| (&spec.name, spec))
-            .collect();
+        let tool_spec_map: std::collections::HashMap<_, _> =
+            tool_specs.iter().map(|spec| (&spec.name, spec)).collect();
 
         // Calculate estimated resource usage
-        let mut est_tokens = 0u64;
+        let mut _est_tokens = 0u64;
         let mut est_cost = 0.0f64;
         let mut est_latency = 0u64;
 
@@ -97,7 +98,7 @@ impl ConstraintChecker {
                     if let Some(ref constraints) = tool_spec.constraints {
                         // Add estimated tokens
                         if let Some(tokens_max) = constraints.input_tokens_max {
-                            est_tokens += tokens_max as u64;
+                            _est_tokens += tokens_max as u64;
                         }
 
                         // Add estimated cost
@@ -173,7 +174,7 @@ impl ConstraintChecker {
         tool_spec: &ToolSpec,
     ) -> Result<Budget, ConstraintError> {
         let mut new_budget = initial_budget.clone();
-        
+
         if let Some(ref constraints) = tool_spec.constraints {
             // Subtract estimated cost
             if let Some(cost) = constraints.cost_per_call_usd {
@@ -184,7 +185,7 @@ impl ConstraintChecker {
                     });
                 }
             }
-            
+
             // Subtract estimated latency
             if let Some(latency) = constraints.latency_p50_ms {
                 if !new_budget.subtract_latency(latency as u64) {
@@ -194,7 +195,7 @@ impl ConstraintChecker {
                     });
                 }
             }
-            
+
             // Subtract estimated tokens
             if let Some(tokens) = constraints.input_tokens_max {
                 if !new_budget.subtract_tokens(tokens as u64) {
@@ -205,7 +206,7 @@ impl ConstraintChecker {
                 }
             }
         }
-        
+
         Ok(new_budget)
     }
 }
@@ -215,7 +216,7 @@ fn estimate_token_count(value: &serde_json::Value) -> Result<u64, ConstraintErro
     // In practice, you'd use a proper tokenizer
     let text = value.to_string();
     let chars = text.chars().count() as u64;
-    
+
     // Rough estimation: 1 token ~ 4 characters
     Ok(chars / 4)
 }

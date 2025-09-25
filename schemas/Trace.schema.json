@@ -17,7 +17,17 @@
     },
     "event_type": {
       "type": "string",
-      "enum": ["step_start", "step_end", "tool_invoke", "constraint_check", "policy_violation", "evidence_check", "memory_op"]
+      "enum": [
+        "step_start",
+        "step_end",
+        "tool_invoke",
+        "constraint_check",
+        "policy_violation",
+        "evidence_check",
+        "memory_op",
+        "capability_route",
+        "plan_optimizer"
+      ]
     },
     "cost_usd": {
       "type": "number",

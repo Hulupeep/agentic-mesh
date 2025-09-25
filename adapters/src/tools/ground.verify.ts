@@ -124,6 +124,12 @@ export const groundVerify: ToolHandler = {
           }
         }
       }
+    },
+    capabilities: ['evidence.verify'],
+    constraints: {
+      latency_p50_ms: 200,
+      cost_per_call_usd: 0.0002,
+      side_effects: false
     }
   },
 

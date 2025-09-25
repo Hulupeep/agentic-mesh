@@ -108,6 +108,12 @@ export const meshMemSqlite: ToolHandler = {
           message: { type: 'string' }
         }
       }
+    },
+    capabilities: ['memory.read', 'memory.write', 'memory.forget'],
+    constraints: {
+      latency_p50_ms: 80,
+      cost_per_call_usd: 0.00005,
+      side_effects: false
     }
   },
 
@@ -121,23 +127,36 @@ export const meshMemSqlite: ToolHandler = {
     try {
       switch (operation) {
         case 'read':
-          const row = await dbGet('SELECT value FROM memory WHERE key = ? AND (ttl IS NULL OR timestamp >= datetime("now", "-" || ttl))', key);
-          
+          const row = await dbGet(
+            'SELECT key, value, provenance, confidence, ttl, timestamp FROM memory WHERE key = ? AND (ttl IS NULL OR timestamp >= datetime("now", "-" || ttl))',
+            key
+          );
+
           if (row) {
-            return { 
-              result: { 
-                success: true, 
-                value: JSON.parse(row.value) 
-              } 
-            };
-          } else {
-            return { 
-              result: { 
-                success: false, 
-                message: `Key ${key} not found or expired` 
-              } 
+            const provenance = row.provenance ? JSON.parse(row.provenance) : undefined;
+            const value = JSON.parse(row.value);
+
+            return {
+              result: {
+                success: true,
+                entry: {
+                  key,
+                  value,
+                  provenance,
+                  confidence: row.confidence ?? undefined,
+                  ttl: row.ttl ?? undefined,
+                  timestamp: row.timestamp
+                }
+              }
             };
           }
+
+          return {
+            result: {
+              success: false,
+              message: `Key ${key} not found or expired`
+            }
+          };
 
         case 'write':
           // Check confidence if provided
@@ -151,31 +170,44 @@ export const meshMemSqlite: ToolHandler = {
           }
           
           // Insert or update the memory entry
-          await dbRun(`
+          await dbRun(
+            `
             INSERT OR REPLACE INTO memory (key, value, provenance, confidence, ttl, timestamp)
             VALUES (?, ?, ?, ?, ?, datetime('now'))
-          `, 
-          key,
-          JSON.stringify(args.value),
-          args.provenance ? JSON.stringify(args.provenance) : null,
-          args.confidence || null,
-          args.ttl || 'P90D' // Default TTL is 90 days
+          `,
+            key,
+            JSON.stringify(args.value),
+            args.provenance ? JSON.stringify(args.provenance) : null,
+            args.confidence ?? null,
+            args.ttl || 'P90D' // Default TTL is 90 days
           );
-          
-          return { 
-            result: { 
-              success: true, 
-              message: `Key ${key} written successfully` 
-            } 
+
+          const stored = await dbGet(
+            'SELECT key, value, provenance, confidence, ttl, timestamp FROM memory WHERE key = ?',
+            key
+          );
+
+          return {
+            result: {
+              success: true,
+              entry: {
+                key,
+                value: args.value,
+                provenance: args.provenance || undefined,
+                confidence: args.confidence ?? undefined,
+                ttl: stored?.ttl ?? args.ttl || 'P90D',
+                timestamp: stored?.timestamp || new Date().toISOString()
+              }
+            }
           };
 
         case 'forget':
           await dbRun('DELETE FROM memory WHERE key = ?', key);
-          return { 
-            result: { 
-              success: true, 
-              message: `Key ${key} deleted` 
-            } 
+          return {
+            result: {
+              success: true,
+              message: `Key ${key} deleted`
+            }
           };
 
         default:

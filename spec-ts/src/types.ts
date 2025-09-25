@@ -8,6 +8,7 @@ export const ToolSpecSchema = z.object({
     input: z.record(z.any()),
     output: z.record(z.any()),
   }),
+  capabilities: z.array(z.string()).optional(),
   constraints: z.object({
     input_tokens_max: z.number().int().nonnegative().optional(),
     latency_p50_ms: z.number().int().nonnegative().optional(),
@@ -34,14 +35,34 @@ export const PlanSchema = z.object({
     cost_cap_usd: z.number().nonnegative().optional(),
     risk: z.number().min(0).max(1).optional(),
   }).optional(),
-  nodes: z.array(z.object({
+});
+
+const toolRequiredOps = new Set([ 'call', 'map', 'reduce', 'verify', 'mem.read', 'mem.write', 'retry' ]);
+
+const PlanNodeSchema = z.object({
     id: z.string(),
     op: z.enum(['call', 'map', 'reduce', 'branch', 'assert', 'spawn', 'mem.read', 'mem.write', 'verify', 'retry']),
     tool: z.string().optional(),
+    capability: z.string().optional(),
     args: z.record(z.any()).optional(),
     bind: z.record(z.string()).optional(),
     out: z.record(z.string()).optional(),
-  })),
+}).superRefine((node, ctx) => {
+  if (toolRequiredOps.has(node.op) && !node.tool && !node.capability) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Node ${node.id} requires either a tool or capability`,
+    });
+  }
+});
+
+export const PlanSchema = z.object({
+  signals: z.object({
+    latency_budget_ms: z.number().int().nonnegative().optional(),
+    cost_cap_usd: z.number().nonnegative().optional(),
+    risk: z.number().min(0).max(1).optional(),
+  }).optional(),
+  nodes: z.array(PlanNodeSchema),
   edges: z.array(z.object({
     from: z.string(),
     to: z.string(),
@@ -90,7 +111,7 @@ export const TraceSchema = z.object({
   plan_id: z.string(),
   step_id: z.string(),
   ts: z.string().datetime(),
-  event_type: z.enum(['step_start', 'step_end', 'tool_invoke', 'constraint_check', 'policy_violation', 'evidence_check', 'memory_op']),
+  event_type: z.enum(['step_start', 'step_end', 'tool_invoke', 'constraint_check', 'policy_violation', 'evidence_check', 'memory_op', 'capability_route', 'plan_optimizer']),
   cost_usd: z.number().nonnegative().optional(),
   tokens_in: z.number().int().nonnegative().optional(),
   tokens_out: z.number().int().nonnegative().optional(),

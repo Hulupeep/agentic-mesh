@@ -25,6 +25,12 @@
         }
       }
     },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "constraints": {
       "type": "object",
       "properties": {

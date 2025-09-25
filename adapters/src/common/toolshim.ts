@@ -10,6 +10,7 @@ export interface ToolSpec {
     input: any;
     output: any;
   };
+  capabilities?: string[];
   constraints?: {
     input_tokens_max?: number;
     latency_p50_ms?: number;
@@ -49,6 +50,16 @@ export function createToolServer(tools: Record<string, ToolHandler>, port: numbe
     res.json(specs);
   });
 
+  // Endpoint to get default tool spec when server hosts a single tool
+  app.get('/spec', (req, res) => {
+    const names = Object.keys(tools);
+    if (names.length === 1) {
+      res.json(tools[names[0]].spec);
+    } else {
+      res.status(400).json({ error: 'Explicit tool name required for multi-tool servers' });
+    }
+  });
+
   // Endpoint to get a specific tool spec
   app.get('/spec/:name', (req, res) => {
     const toolName = req.params.name;
@@ -71,6 +82,24 @@ export function createToolServer(tools: Record<string, ToolHandler>, port: numbe
       res.status(404).json({ error: `Tool ${toolName} not found` });
       return;
     }
+
+    try {
+      const result = await tool.invoke(req.body.args || {});
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || 'Tool invocation failed' });
+    }
+  });
+
+  // Convenience endpoint for single-tool servers
+  app.post('/invoke', async (req, res) => {
+    const names = Object.keys(tools);
+    if (names.length !== 1) {
+      res.status(400).json({ error: 'Explicit tool name required for multi-tool servers' });
+      return;
+    }
+
+    const tool = tools[names[0]];
 
     try {
       const result = await tool.invoke(req.body.args || {});

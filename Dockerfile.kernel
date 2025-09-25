@@ -1,1 +1,44 @@
-# Dockerfile for AMP Kernel\nFROM rust:1.75 AS builder\n\nWORKDIR /app\n\n# Copy manifest files\nCOPY kernel/Cargo.toml kernel/Cargo.lock .\n\n# Create a dummy main to build dependencies\nRUN mkdir src && echo \"fn main(){}\" > src/main.rs\nRUN cargo build --release\nRUN rm -f target/release/deps/amp*\n\n# Copy source code\nCOPY kernel/src ./src\nCOPY kernel/Cargo.toml .\n\n# Build the application\nRUN cargo build --release\n\n# Runtime stage\nFROM debian:bookworm-slim AS runtime\n\n# Install runtime dependencies\nRUN apt-get update && apt-get install -y \\\n    ca-certificates \\\n    && rm -rf /var/lib/apt/lists/*\n\nWORKDIR /app\n\n# Copy the executable from the builder stage\nCOPY --from=builder /app/target/release/ampctl /usr/local/bin/ampctl\n\n# Create non-root user\nRUN groupadd -r amp && useradd -r -g amp amp\n\nUSER amp\n\n# Expose port for API\nEXPOSE 7777\n\n# Default command\nCMD [\"ampctl\"]\n
+# Dockerfile for AMP Kernel
+FROM rust:1.75 AS builder
+
+WORKDIR /app
+
+# Copy manifest files
+COPY kernel/Cargo.toml ./
+
+# Create a dummy main to build dependencies
+RUN mkdir -p src/cmd/ampctl && echo \"fn main() {}\" > src/cmd/ampctl/main.rs
+RUN cargo build --release
+RUN rm -f target/release/deps/amp*
+
+# Copy source code
+COPY kernel/src ./src
+COPY kernel/Cargo.toml ./
+COPY kernel/internal ./internal
+COPY kernel/cmd ./cmd
+COPY kernel/tests ./tests
+
+# Build the application
+RUN cargo build --release
+
+# Runtime stage
+FROM debian:bookworm-slim AS runtime
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the executable from the builder stage
+COPY --from=builder /app/target/release/amp /usr/local/bin/amp
+
+# Create non-root user
+RUN groupadd -r amp && useradd -r -g amp amp
+
+USER amp
+
+# Expose port for API
+EXPOSE 7777
+
+# Default command
+CMD ["amp"]

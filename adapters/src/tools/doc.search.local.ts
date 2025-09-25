@@ -140,6 +140,7 @@ export const docSearchLocal: ToolHandler = {
         required: ['hits']
       }
     },
+    capabilities: ['search.documents'],
     constraints: {
       input_tokens_max: 512,
       latency_p50_ms: 120,

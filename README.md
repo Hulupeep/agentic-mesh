@@ -2,13 +2,31 @@
 
 [![CI](https://github.com/acme/amp/actions/workflows/ci.yml/badge.svg)](https://github.com/acme/amp/actions/workflows/ci.yml)
 
-A next-generation orchestration layer where tools are the compiler surface, plans are code, evidence is currency, and memory is the moat.
+## Why AMP
+
+Teams are building agent flows with ad hoc scripts and chained prompts. The usual pain points are:
+
+- Execution paths live in code that is hard to read or review.
+- Tool contracts are informal, so one change breaks many flows.
+- Budgets for cost, latency, or tokens are monitored manually, if at all.
+- Evidence and memory are stored without provenance, making it hard to trust results.
+
+## Mission
+
+AMP exists to make multi-step AI work repeatable, auditable, and predictable. Plans should read like a blueprint, tools should declare their contract, and every run should leave evidence that can be checked later.
+
+## What AMP Is
+
+AMP is both a protocol and a working implementation.
+
+- **Protocol**: A set of JSON schemas that define plans, tools, evidence, memory entries, and policy artefacts. These schemas describe how any compliant runtime should talk about workflows and results.
+- **Implementation**: A Rust kernel and TypeScript adapters that execute those schemas. The kernel schedules plans, enforces budgets, verifies evidence, and writes trace data. Adapters expose real tools behind a consistent HTTP surface.
 
 ## Overview
 
-The Agentic Mesh Protocol (AMP) provides a sophisticated orchestration kernel that executes Plan IR (JSON) against standardized ToolSpecs, with built-in constraint enforcement (latency, cost, tokens) and evidence verification.
+The reference implementation runs Plan IR (declarative JSON) against ToolSpecs discovered at runtime. It gathers telemetry for cost, latency, and tokens, verifies evidence summaries, and applies policy decisions before data is stored or returned.
 
-### Key Features
+### Key Capabilities
 
 - **Plan IR**: Declarative execution graphs with support for complex workflows
 - **ToolSpec ABI**: Standardized interface for all tools with schema validation
@@ -16,6 +34,8 @@ The Agentic Mesh Protocol (AMP) provides a sophisticated orchestration kernel th
 - **Memory Management**: Key-value storage with provenance tracking
 - **Constraint Enforcement**: Budget management for cost, latency, and tokens
 - **Policy Engine**: Configurable policy enforcement for safety and reliability
+- **Capability Routing**: Plans can target capabilities; the kernel selects compliant tools deterministically and records the routing decision.
+- **Plan Optimiser**: A deterministic pass that reorders independent steps using ToolSpec telemetry and emits trace events for audit.
 
 ## Quickstart in 90 Seconds
 
@@ -64,6 +84,18 @@ The AMP system consists of:
 - **Adapters**: Node.js/TypeScript tools implementing the ToolSpec ABI
 - **Schemas**: JSON Schema definitions for all protocol objects
 - **CLI**: `ampctl` for plan execution and management
+
+## Beyond Code Generation
+
+AMP is not limited to software delivery. Any multi-step workflow that needs determinism, auditability, and guardrails can be encoded as a plan:
+
+- **Research & Analysis**: Chain document retrieval, summarisation, validation, and insight storage with guaranteed citations.
+- **Operational Runbooks**: Capture incident response or security triage steps as declarative playbooks with enforced ordering and budgets.
+- **Content Pipelines**: Orchestrate translation, fact checking, compliance review, and publishing across multiple agents.
+- **Decision Support**: Coordinate data ingestion, scoring, human approvals, and memory updates for healthcare or finance decisions with traceable provenance.
+- **Robotics & Hardware**: Schedule perception, planning, safety checks, and reporting for autonomous systems, ensuring the same safe sequence every time.
+
+See the [FAQ](FAQ.md) for additional scenarios and migration guidance.
 
 ## ToolSpec ABI Contract Stability
 

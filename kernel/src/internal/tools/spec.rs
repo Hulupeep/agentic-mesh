@@ -6,6 +6,7 @@ pub struct ToolSpec {
     pub name: String,
     pub description: Option<String>,
     pub io: IoSpec,
+    pub capabilities: Option<Vec<String>>,
     pub constraints: Option<Constraints>,
     pub provenance: Option<Provenance>,
     pub quality: Option<Quality>,
@@ -79,13 +80,16 @@ impl ToolClient {
     pub async fn invoke_tool(
         &self,
         tool_url: &str,
+        tool_name: &str,
         args: Option<serde_json::Value>,
     ) -> Result<serde_json::Value, ToolError> {
         let request = InvokeRequest { args };
-        
+        let base_url = tool_url.trim_end_matches('/');
+        let invoke_url = format!("{}/invoke/{}", base_url, tool_name);
+
         let response = self
             .client
-            .post(format!("{}/invoke", tool_url))
+            .post(invoke_url)
             .json(&request)
             .send()
             .await
@@ -102,11 +106,17 @@ impl ToolClient {
 
         Ok(invoke_response.result)
     }
-    
-    pub async fn get_tool_spec(&self, tool_url: &str) -> Result<ToolSpec, ToolError> {
+
+    pub async fn get_tool_spec(
+        &self,
+        tool_url: &str,
+        tool_name: &str,
+    ) -> Result<ToolSpec, ToolError> {
+        let base_url = tool_url.trim_end_matches('/');
+        let spec_url = format!("{}/spec/{}", base_url, tool_name);
         let response = self
             .client
-            .get(format!("{}/spec", tool_url))
+            .get(spec_url)
             .send()
             .await
             .map_err(|e| ToolError::Communication(e.to_string()))?;

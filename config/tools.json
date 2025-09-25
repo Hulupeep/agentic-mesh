@@ -1,0 +1,5 @@
+[
+  {"name": "doc.search.local", "url": "http://localhost:7401"},
+  {"name": "ground.verify", "url": "http://localhost:7402"},
+  {"name": "mesh.mem.sqlite", "url": "http://localhost:7403"}
+]
