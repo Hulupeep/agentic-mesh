@@ -1,5 +1,6 @@
 # Agentic Mesh Protocol (AMP)
 
+** Work in progress - please get in touch with your comments on LI linkedin.com/in/colmbyrne
  
 
 ## The Problem We Are Solving
