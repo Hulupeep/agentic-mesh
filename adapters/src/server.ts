@@ -5,6 +5,7 @@ import { createToolServer } from './common/toolshim';
 import { docSearchLocal } from './tools/doc.search.local';
 import { groundVerify } from './tools/ground.verify';
 import { meshMemSqlite } from './tools/mesh.mem.sqlite';
+import { meshMemAnalytics } from './tools/mesh.mem.analytics';
 import { elasticsearchAdapter } from './adapters/elasticsearch';
 import { postgresAdapter } from './adapters/postgres';
 import { mcpAdapter } from './adapters/mcp';
@@ -14,6 +15,7 @@ const tools = {
   'doc.search.local': docSearchLocal,
   'ground.verify': groundVerify,
   'mesh.mem.sqlite': meshMemSqlite,
+  'mesh.mem.analytics': meshMemAnalytics,
   'search.elasticsearch': elasticsearchAdapter,
   'search.postgres': postgresAdapter,
   'bridge.mcp': mcpAdapter
@@ -24,6 +26,7 @@ const ports = {
   'doc.search.local': 7401,
   'ground.verify': 7402,
   'mesh.mem.sqlite': 7403,
+  'mesh.mem.analytics': 7407,
   'search.elasticsearch': 7404,
   'search.postgres': 7405,
   'bridge.mcp': 7406

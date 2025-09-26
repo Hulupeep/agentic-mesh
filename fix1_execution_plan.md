@@ -45,11 +45,11 @@ This plan tracks every roadmap item from `fix1.md`, mapping them to concrete act
 **Explainer**: Scheduler now hydrates ToolSpec capabilities and selects tools dynamically (`kernel/tests/integration_tests.rs:test_capability_routing_selects_registered_tool`), emitting `capability_route` traces for audit. A deterministic optimiser ranks nodes via predicted cost/latency before execution, recording the decision tree in `plan_optimizer` traces and ensuring dependency-safe reordering.
 
 ## Phase 6 – Memory as Moat
-- [ ] Enforce TTL/provenance structure in memory store (DB schema updates).
-- [ ] Build analytics ToolSpec for insight extraction.
+- [x] Enforce TTL/provenance structure in memory store (DB schema updates).
+- [x] Build analytics ToolSpec for insight extraction.
 - [ ] Support replay bundles containing memory slices with trace signatures.
 
-**Explainer**: Aligns with industries that depend on institutional knowledge (healthcare, education, robotics) to learn safely over time.
+**Explainer**: Aligns with industries that depend on institutional knowledge (healthcare, education, robotics) to learn safely over time. `mesh.mem.sqlite` now enforces non-empty provenance, TTL validation, and evidence metadata end-to-end (kernel + adapter), while the new `mesh.mem.analytics` tool surfaces live summary/by-key insights exercised by scheduler and API integration tests.
 
 ## Phase 7 – Production Polish
 - [ ] Implement `create_bundle` API to output tar.gz bundles (plan, specs, traces, memory diff).

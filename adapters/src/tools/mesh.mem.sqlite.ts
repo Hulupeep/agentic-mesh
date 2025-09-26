@@ -9,9 +9,11 @@ interface MemoryEntry {
   key: string;
   value: any;
   provenance?: string[];
-  confidence?: number;
-  ttl?: string; // ISO 8601 duration
-  timestamp: string; // ISO 8601 datetime
+  confidence: number;
+  ttl: string;
+  timestamp: string;
+  expires_at: string;
+  evidence_summary?: any;
 }
 
 let db: sqlite3.Database | null = null;
@@ -30,6 +32,19 @@ const dbGet = (sql: string, ...params: any[]) => {
   });
 };
 
+const dbAll = (sql: string, ...params: any[]) => {
+  return new Promise<any[]>((resolve, reject) => {
+    if (!db) {
+      reject(new Error('Database not initialized'));
+      return;
+    }
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
+};
+
 const dbRun = (sql: string, ...params: any[]) => {
   return new Promise<any>((resolve, reject) => {
     if (!db) {
@@ -38,10 +53,46 @@ const dbRun = (sql: string, ...params: any[]) => {
     }
     db.run(sql, params, function(err) {
       if (err) reject(err);
-      else resolve(this); // 'this' contains lastID and changes
+      else resolve(this);
     });
   });
 };
+
+const TTL_REGEX = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/;
+
+function parseTtl(ttl?: string): { ttl: string; expiresEpoch: number } {
+  const canonical = ttl && ttl.trim().length > 0 ? ttl.trim().toUpperCase() : 'P90D';
+  const match = TTL_REGEX.exec(canonical);
+  if (!match) {
+    throw new Error(`Invalid TTL format: ${ttl}`);
+  }
+
+  const days = match[1] ? parseInt(match[1], 10) : 0;
+  const hours = match[2] ? parseInt(match[2], 10) : 0;
+  const minutes = match[3] ? parseInt(match[3], 10) : 0;
+  const seconds = match[4] ? parseInt(match[4], 10) : 0;
+
+  const totalSeconds = days * 24 * 3600 + hours * 3600 + minutes * 60 + seconds;
+  if (totalSeconds <= 0) {
+    throw new Error(`TTL duration must be positive: ${ttl}`);
+  }
+
+  const expiresEpoch = Math.floor(Date.now() / 1000) + totalSeconds;
+  return { ttl: canonical, expiresEpoch };
+}
+
+function ensureProvenance(raw: any): string[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error('Memory write requires non-empty provenance array');
+  }
+  const cleaned = raw.map((item) => {
+    if (typeof item !== 'string' || item.trim().length === 0) {
+      throw new Error('Provenance entries must be non-empty strings');
+    }
+    return item.trim();
+  });
+  return cleaned;
+}
 
 // Initialize the database
 async function initializeDB(): Promise<void> {
@@ -52,22 +103,40 @@ async function initializeDB(): Promise<void> {
         return;
       }
 
-      // Create the memory table
-      db!.exec(`
-        CREATE TABLE IF NOT EXISTS memory (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL,
-          provenance TEXT,
-          confidence REAL,
-          ttl TEXT,
-          timestamp TEXT NOT NULL
-        )
-      `, (err) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
+      db!.serialize(() => {
+        db!.run('PRAGMA foreign_keys = ON;');
+        db!.run('PRAGMA journal_mode = WAL;');
+        db!.run(
+          `CREATE TABLE IF NOT EXISTS memory_entries (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            confidence REAL NOT NULL CHECK(confidence >= 0.0 AND confidence <= 1.0),
+            ttl TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at INTEGER NOT NULL,
+            evidence_summary TEXT
+          )`,
+          (entriesErr) => {
+            if (entriesErr) {
+              reject(entriesErr);
+              return;
+            }
+          }
+        );
+        db!.run(
+          `CREATE TABLE IF NOT EXISTS memory_provenance (
+            key TEXT PRIMARY KEY,
+            sources TEXT NOT NULL,
+            FOREIGN KEY(key) REFERENCES memory_entries(key) ON DELETE CASCADE
+          )`,
+          (provErr) => {
+            if (provErr) {
+              reject(provErr);
+              return;
+            }
+            resolve();
+          }
+        );
       });
     });
   });
@@ -126,66 +195,104 @@ export const meshMemSqlite: ToolHandler = {
 
     try {
       switch (operation) {
-        case 'read':
+        case 'read': {
           const row = await dbGet(
-            'SELECT key, value, provenance, confidence, ttl, timestamp FROM memory WHERE key = ? AND (ttl IS NULL OR timestamp >= datetime("now", "-" || ttl))',
+            `SELECT e.value, e.confidence, e.ttl, e.created_at, e.expires_at, e.evidence_summary, p.sources
+             FROM memory_entries e
+             LEFT JOIN memory_provenance p ON e.key = p.key
+             WHERE e.key = ? AND e.expires_at > strftime('%s','now')`,
             key
           );
 
-          if (row) {
-            const provenance = row.provenance ? JSON.parse(row.provenance) : undefined;
-            const value = JSON.parse(row.value);
-
+          if (!row) {
             return {
               result: {
-                success: true,
-                entry: {
-                  key,
-                  value,
-                  provenance,
-                  confidence: row.confidence ?? undefined,
-                  ttl: row.ttl ?? undefined,
-                  timestamp: row.timestamp
-                }
+                success: false,
+                message: `Key ${key} not found or expired`
               }
             };
           }
 
+          const provenance = row.sources ? JSON.parse(row.sources) : undefined;
+          const value = JSON.parse(row.value);
+          const expiresAtIso = new Date(row.expires_at * 1000).toISOString();
+          const evidenceSummary = row.evidence_summary ? JSON.parse(row.evidence_summary) : undefined;
+
           return {
             result: {
-              success: false,
-              message: `Key ${key} not found or expired`
+              success: true,
+              entry: {
+                key,
+                value,
+                provenance,
+                confidence: row.confidence,
+                ttl: row.ttl,
+                timestamp: row.created_at,
+                expires_at: expiresAtIso,
+                evidence_summary: evidenceSummary
+              }
             }
           };
+        }
 
-        case 'write':
-          // Check confidence if provided
-          if (args.confidence !== undefined && args.confidence < 0.8) {
-            return { 
-              result: { 
-                success: false, 
-                message: 'Memory write rejected: confidence too low (< 0.8)' 
-              } 
+        case 'write': {
+          if (typeof args.value === 'undefined') {
+            return {
+              result: {
+                success: false,
+                message: 'Memory write requires a value'
+              }
             };
           }
-          
-          // Insert or update the memory entry
-          await dbRun(
-            `
-            INSERT OR REPLACE INTO memory (key, value, provenance, confidence, ttl, timestamp)
-            VALUES (?, ?, ?, ?, ?, datetime('now'))
-          `,
-            key,
-            JSON.stringify(args.value),
-            args.provenance ? JSON.stringify(args.provenance) : null,
-            args.confidence ?? null,
-            args.ttl || 'P90D' // Default TTL is 90 days
-          );
 
-          const stored = await dbGet(
-            'SELECT key, value, provenance, confidence, ttl, timestamp FROM memory WHERE key = ?',
-            key
-          );
+          if (typeof args.confidence !== 'number' || args.confidence < 0.8) {
+            return {
+              result: {
+                success: false,
+                message: 'Memory write rejected: confidence must be >= 0.8'
+              }
+            };
+          }
+
+          const provenanceArray = ensureProvenance(args.provenance);
+          const ttlInfo = parseTtl(args.ttl);
+          const createdAt = new Date().toISOString();
+          const evidenceSummary = args.evidence_summary
+            ? JSON.stringify(args.evidence_summary)
+            : null;
+
+          try {
+            await dbRun('BEGIN IMMEDIATE');
+            await dbRun(
+              `INSERT INTO memory_entries (key, value, confidence, ttl, created_at, expires_at, evidence_summary)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(key) DO UPDATE SET
+                 value = excluded.value,
+                 confidence = excluded.confidence,
+                 ttl = excluded.ttl,
+                 created_at = excluded.created_at,
+                 expires_at = excluded.expires_at,
+                 evidence_summary = excluded.evidence_summary`,
+              key,
+              JSON.stringify(args.value),
+              args.confidence,
+              ttlInfo.ttl,
+              createdAt,
+              ttlInfo.expiresEpoch,
+              evidenceSummary
+            );
+            await dbRun(
+              `INSERT INTO memory_provenance (key, sources)
+               VALUES (?, ?)
+               ON CONFLICT(key) DO UPDATE SET sources = excluded.sources`,
+              key,
+              JSON.stringify(provenanceArray)
+            );
+            await dbRun('COMMIT');
+          } catch (error: any) {
+            await dbRun('ROLLBACK').catch(() => undefined);
+            throw error;
+          }
 
           return {
             result: {
@@ -193,16 +300,19 @@ export const meshMemSqlite: ToolHandler = {
               entry: {
                 key,
                 value: args.value,
-                provenance: args.provenance || undefined,
-                confidence: args.confidence ?? undefined,
-                ttl: stored?.ttl ?? args.ttl || 'P90D',
-                timestamp: stored?.timestamp || new Date().toISOString()
+                provenance: provenanceArray,
+                confidence: args.confidence,
+                ttl: ttlInfo.ttl,
+                timestamp: createdAt,
+                expires_at: new Date(ttlInfo.expiresEpoch * 1000).toISOString(),
+                evidence_summary: args.evidence_summary
               }
             }
           };
+        }
 
         case 'forget':
-          await dbRun('DELETE FROM memory WHERE key = ?', key);
+          await dbRun('DELETE FROM memory_entries WHERE key = ?', key);
           return {
             result: {
               success: true,

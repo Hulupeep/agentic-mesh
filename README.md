@@ -14,6 +14,16 @@ This is especially painful for teams trying to ship AI SaaS. Customers expect de
 
 AMP exists to make multi-step AI work repeatable, auditable, and predictable. Plans should read like a blueprint, tools should declare their contract, and every run should leave evidence that can be checked later—so a product team can operate, monitor, and evolve an agentic SaaS with confidence.
 
+## Philosophy: Mesh over Improvisation
+
+- **Plans are the source of truth**. LLMs can draft them, but the plan—not a hidden chain-of-thought—decides what runs, in what order, and under which budgets.
+- **Agents are contracts, not personas**. Every agent is a ToolSpec-bound surface exposing IO schemas, cost hints, and policy rules. Internals may use LLM loops, but the outer contract is deterministic.
+- **Evidence is currency**. Assertions fail closed unless a verifier (human or automated) signs off with sufficient confidence and provenance.
+- **Memory is strategic, not a cache**. Writes must include provenance, TTL, and confidence so the system can reuse knowledge safely across runs and teams.
+- **Telemetry powers evolution**. Cost, latency, tokens, and policy decisions are streamed into traces so higher-level services can propose optimisations without guesswork.
+
+This mental model turns ad-hoc “agent” scripts into a mesh of governed services that a product team can reason about like any other production system. The FAQ contrasts AMP with improvisational frameworks such as Claude Flow or LangChain.
+
 ## Approach: Protocol + Implementation
 
 AMP is both a protocol and a working implementation.
@@ -22,6 +32,26 @@ AMP is both a protocol and a working implementation.
 - **Implementation**: A Rust kernel and TypeScript adapters that execute those schemas. The kernel schedules plans, enforces budgets, verifies evidence, and writes trace data. Adapters expose real tools behind a consistent HTTP surface.
 
 The protocol gives teams a stable interface for tools and plans; the implementation shows how to build deterministic orchestration on top of it.
+
+## Reframing “Agents”
+
+| Context | How “agents” behave | What you rely on |
+| --- | --- | --- |
+| Prompt-first stacks (Claude Flow, LangChain) | The LLM invents helper personas and tool chains on the fly. Orchestration lives in hidden state. | Speed of ideation; low setup cost; unpredictable replay. |
+| AMP | Agents are registered ToolSpecs with explicit IO, costs, and policy. Plans bind them in a DAG with budgets and evidence rules. | Deterministic execution, auditable traces, swap-in/out tooling without rewriting flows. |
+
+Use upstream LLMs to design plans or even generate new ToolSpecs, then hand them to AMP when you need repeatability. AMP is the runtime that enforces the plan “as signed.”
+
+## Scenario: From Idea to Deterministic Workflow
+
+Imagine a PM asks for “a neurodivergent-friendly ToDo app that preserves divergent thinking but guides completion.”
+
+1. **Plan drafting**: Prompt an LLM to propose a plan covering research, persona interviews, synthesis, and API scaffolding. Review the generated Plan IR, add budgets, and require verification for any behavioural claims.
+2. **Execution under guardrails**: AMP hydrates the ToolSpecs (`doc.search.local`, `ground.verify`, `mesh.mem.sqlite`, `mesh.mem.analytics`), routes each node deterministically, and halts if costs, latency, or evidence thresholds are violated.
+3. **Memory as leverage**: Validated insights land in memory with provenance and TTLs. The analytics tool surfaces expiring knowledge and confidence patterns so the next iteration knows what to refresh.
+4. **Iteration**: Feed traces, evidence summaries, and memory snapshots back into the planner for the next version. AMP still executes the updated plan deterministically, preserving audit trails across releases.
+
+This pattern generalises to compliance workflows, robotics procedures, support runbooks, and any other domain where “do it again, safely” matters as much as “get it working once.”
 
 ## Building Agentic SaaS with AMP
 
@@ -43,6 +73,7 @@ The reference implementation runs Plan IR (declarative JSON) against ToolSpecs d
 - **ToolSpec ABI**: Standardized interface for all tools with schema validation
 - **Evidence System**: Verification of claims with confidence scoring
 - **Memory Management**: Key-value storage with provenance tracking
+- **Memory Analytics**: Deterministic tools (`mesh.mem.analytics`) summarise memory health, expiring entries, and evidence coverage for downstream plans.
 - **Constraint Enforcement**: Budget management for cost, latency, and tokens
 - **Policy Engine**: Configurable policy enforcement for safety and reliability
 - **Capability Routing**: Plans can target capabilities; the kernel selects compliant tools deterministically and records the routing decision.

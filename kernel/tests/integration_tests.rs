@@ -13,7 +13,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::Utc;
+use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -42,6 +42,8 @@ struct MemoryRecord {
     confidence: Option<f64>,
     ttl: Option<String>,
     timestamp: String,
+    expires_at: Option<String>,
+    evidence_summary: Option<serde_json::Value>,
 }
 
 type SharedMemoryState = Arc<Mutex<HashMap<String, MemoryRecord>>>;
@@ -324,9 +326,16 @@ async fn spawn_memory_server(
         State(state): State<SharedMemoryState>,
         Json(payload): Json<serde_json::Value>,
     ) -> Json<serde_json::Value> {
+        let args_obj = payload
+            .get("args")
+            .and_then(|v| v.as_object())
+            .cloned()
+            .unwrap_or_default();
+
         let operation = payload
             .get("operation")
             .and_then(|v| v.as_str())
+            .or_else(|| args_obj.get("operation").and_then(|v| v.as_str()))
             .unwrap_or("");
 
         match operation {
@@ -352,6 +361,28 @@ async fn spawn_memory_server(
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| "P90D".to_string());
                 let timestamp = Utc::now().to_rfc3339();
+                let expires_at = Utc::now()
+                    .checked_add_signed(Duration::days(90))
+                    .map(|dt| dt.to_rfc3339());
+                let evidence_summary = payload.get("evidence_summary").cloned();
+
+                if provenance.as_ref().map(|p| p.is_empty()).unwrap_or(true) {
+                    return Json(json!({
+                        "result": {
+                            "success": false,
+                            "message": "Memory write requires non-empty provenance"
+                        }
+                    }));
+                }
+
+                if confidence.unwrap_or(0.0) < 0.8 {
+                    return Json(json!({
+                        "result": {
+                            "success": false,
+                            "message": "Memory write rejected: confidence must be >= 0.8"
+                        }
+                    }));
+                }
 
                 let record = MemoryRecord {
                     value: value.clone(),
@@ -359,6 +390,8 @@ async fn spawn_memory_server(
                     confidence,
                     ttl: Some(ttl.clone()),
                     timestamp: timestamp.clone(),
+                    expires_at: expires_at.clone(),
+                    evidence_summary: evidence_summary.clone(),
                 };
 
                 state.lock().await.insert(key.clone(), record);
@@ -372,7 +405,9 @@ async fn spawn_memory_server(
                             "provenance": provenance,
                             "confidence": confidence,
                             "ttl": ttl,
-                            "timestamp": timestamp
+                            "timestamp": timestamp,
+                            "expires_at": expires_at,
+                            "evidence_summary": evidence_summary
                         }
                     }
                 }))
@@ -392,7 +427,9 @@ async fn spawn_memory_server(
                                 "provenance": entry.provenance,
                                 "confidence": entry.confidence,
                                 "ttl": entry.ttl,
-                                "timestamp": entry.timestamp
+                                "timestamp": entry.timestamp,
+                                "expires_at": entry.expires_at,
+                                "evidence_summary": entry.evidence_summary
                             }
                         }
                     }))
@@ -472,6 +509,209 @@ async fn spawn_memory_server(
     (format!("http://{}", addr), handle)
 }
 
+async fn spawn_memory_analytics_server(
+    state: SharedMemoryState,
+    port: Option<u16>,
+) -> (String, JoinHandle<()>) {
+    async fn handler(
+        State(state): State<SharedMemoryState>,
+        Json(payload): Json<serde_json::Value>,
+    ) -> Json<serde_json::Value> {
+        let args_map = payload
+            .get("args")
+            .and_then(|v| v.as_object())
+            .cloned()
+            .unwrap_or_default();
+
+        let operation = args_map
+            .get("operation")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        match operation {
+            "summary" => {
+                let store = state.lock().await;
+                let now = Utc::now();
+                let mut total = 0usize;
+                let mut expired = 0usize;
+                let mut expiring_next_24h = 0usize;
+
+                for record in store.values() {
+                    total += 1;
+                    if let Some(expires_at) = &record.expires_at {
+                        if let Ok(parsed) = DateTime::parse_from_rfc3339(expires_at) {
+                            let parsed = parsed.with_timezone(&Utc);
+                            if parsed < now {
+                                expired += 1;
+                            } else if parsed <= now + Duration::hours(24) {
+                                expiring_next_24h += 1;
+                            }
+                        }
+                    }
+                }
+
+                Json(serde_json::json!({
+                    "result": {
+                        "success": true,
+                        "data": {
+                            "total_entries": total,
+                            "expired_entries": expired,
+                            "expiring_next_24h": expiring_next_24h,
+                        }
+                    }
+                }))
+            }
+            "list" => {
+                let limit = args_map
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v.min(1000))
+                    .unwrap_or(20) as usize;
+                let mut entries: Vec<(String, MemoryRecord)> = state
+                    .lock()
+                    .await
+                    .iter()
+                    .map(|(key, record)| (key.clone(), record.clone()))
+                    .collect();
+
+                entries.sort_by(|(_, a), (_, b)| {
+                    let default_time = Utc::now() + Duration::days(365);
+                    let a_time = a
+                        .expires_at
+                        .as_ref()
+                        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .unwrap_or(default_time);
+                    let b_time = b
+                        .expires_at
+                        .as_ref()
+                        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .unwrap_or(default_time);
+                    a_time.cmp(&b_time)
+                });
+
+                let data: Vec<serde_json::Value> = entries
+                    .into_iter()
+                    .take(limit)
+                    .map(|(key, record)| {
+                        serde_json::json!({
+                            "key": key,
+                            "confidence": record.confidence,
+                            "ttl": record.ttl,
+                            "created_at": record.timestamp,
+                            "expires_at": record.expires_at,
+                        })
+                    })
+                    .collect();
+
+                Json(serde_json::json!({
+                    "result": {
+                        "success": true,
+                        "data": {"entries": data}
+                    }
+                }))
+            }
+            "by_key" => {
+                let key = args_map
+                    .get("key")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim();
+                if key.is_empty() {
+                    return Json(serde_json::json!({
+                        "result": {
+                            "success": false,
+                            "message": "Key is required for by_key operation"
+                        }
+                    }));
+                }
+
+                let store = state.lock().await;
+                if let Some(record) = store.get(key) {
+                    Json(serde_json::json!({
+                        "result": {
+                            "success": true,
+                            "data": {
+                                "key": key,
+                                "value": record.value,
+                                "confidence": record.confidence,
+                                "ttl": record.ttl,
+                                "created_at": record.timestamp,
+                                "expires_at": record.expires_at,
+                                "provenance": record.provenance,
+                                "evidence_summary": record.evidence_summary
+                            }
+                        }
+                    }))
+                } else {
+                    Json(serde_json::json!({
+                        "result": {
+                            "success": false,
+                            "message": format!("Key {} not found", key)
+                        }
+                    }))
+                }
+            }
+            _ => Json(serde_json::json!({
+                "result": {
+                    "success": false,
+                    "message": format!("Unsupported operation: {}", operation)
+                }
+            })),
+        }
+    }
+
+    async fn spec_handler() -> Json<serde_json::Value> {
+        Json(serde_json::json!({
+            "name": "mesh.mem.analytics",
+            "description": "Stub memory analytics",
+            "io": {
+                "input": {
+                    "type": "object",
+                    "properties": null,
+                    "required": null,
+                    "items": null
+                },
+                "output": {
+                    "type": "object",
+                    "properties": null,
+                    "required": null,
+                    "items": null
+                }
+            },
+            "capabilities": ["memory.analytics"],
+            "constraints": {
+                "input_tokens_max": 128,
+                "latency_p50_ms": 40,
+                "cost_per_call_usd": 0.00001,
+                "rate_limit_qps": 200,
+                "side_effects": false
+            }
+        }))
+    }
+
+    let app = Router::new()
+        .route("/invoke/mesh.mem.analytics", post(handler))
+        .route("/spec/mesh.mem.analytics", get(spec_handler))
+        .with_state(state);
+
+    let listener = match port {
+        Some(p) => tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], p)))
+            .await
+            .unwrap(),
+        None => tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap(),
+    };
+    let addr = listener.local_addr().unwrap();
+    let server = axum::serve(listener, app.into_make_service());
+    let handle = tokio::spawn(async move {
+        server
+            .await
+            .expect("memory analytics server error");
+    });
+    (format!("http://{}", addr), handle)
+}
+
 #[tokio::test]
 async fn test_complete_plan_execution_workflow() {
     // Create a simple plan that exercises multiple operations
@@ -524,6 +764,8 @@ async fn test_complete_plan_execution_workflow() {
                         json!({"data": "test value", "timestamp": "2023-01-01"}),
                     ),
                     ("confidence".to_string(), json!(0.9)),
+                    ("provenance".to_string(), json!(["doc://test"])),
+                    ("ttl".to_string(), json!("P60D")),
                 ])),
                 bind: None,
                 out: None,
@@ -573,6 +815,158 @@ async fn test_complete_plan_execution_workflow() {
     assert_eq!(mem_node.op, Operation::MemWrite);
 
     println!("Plan structure validation passed");
+}
+
+#[tokio::test]
+async fn test_memory_analytics_node_execution() {
+    let (doc_url, doc_handle) = spawn_doc_search_server(None).await;
+    let (verify_url, verify_handle) = spawn_verify_server(None).await;
+    let memory_state: SharedMemoryState = Arc::new(Mutex::new(HashMap::new()));
+    let (memory_url, memory_handle) = spawn_memory_server(memory_state.clone(), None).await;
+    let (analytics_url, analytics_handle) =
+        spawn_memory_analytics_server(memory_state.clone(), None).await;
+
+    let plan = Plan {
+        signals: Some(Signals {
+            latency_budget_ms: Some(5_000),
+            cost_cap_usd: Some(2.0),
+            risk: Some(0.2),
+        }),
+        nodes: vec![
+            Node {
+                id: "search_docs".to_string(),
+                op: Operation::Call,
+                tool: Some("doc.search.local".to_string()),
+                capability: None,
+                args: Some(HashMap::from([
+                    ("q".to_string(), json!("neurodivergent productivity")),
+                    ("k".to_string(), json!(3)),
+                ])),
+                bind: None,
+                out: Some(HashMap::from([(
+                    "search_results".to_string(),
+                    "result".to_string(),
+                )])),
+            },
+            Node {
+                id: "verify_claims".to_string(),
+                op: Operation::Verify,
+                tool: Some("ground.verify".to_string()),
+                capability: None,
+                args: Some(HashMap::from([
+                    (
+                        "claims".to_string(),
+                        json!(["Structured plans improve follow-through"]),
+                    ),
+                    ("sources".to_string(), json!("$search_results.hits")),
+                ])),
+                bind: None,
+                out: Some(HashMap::from([(
+                    "verification".to_string(),
+                    "result".to_string(),
+                )])),
+            },
+            Node {
+                id: "persist_summary".to_string(),
+                op: Operation::MemWrite,
+                tool: Some("mesh.mem.sqlite".to_string()),
+                capability: None,
+                args: Some({
+                    let mut map = HashMap::new();
+                    map.insert("key".to_string(), json!("product.todo.brief"));
+                    map.insert(
+                        "value".to_string(),
+                        json!({
+                            "summary": "$verification.supports[0].explanation",
+                            "source": "$search_results.hits[0].uri"
+                        }),
+                    );
+                    map.insert(
+                        "provenance".to_string(),
+                        json!(["$verification.supports[0].source"]),
+                    );
+                    map.insert(
+                        "confidence".to_string(),
+                        json!("$verification.verdicts[0].confidence"),
+                    );
+                    map.insert("ttl".to_string(), json!("P30D"));
+                    map
+                }),
+                bind: None,
+                out: None,
+            },
+            Node {
+                id: "memory_insights".to_string(),
+                op: Operation::Call,
+                tool: Some("mesh.mem.analytics".to_string()),
+                capability: None,
+                args: Some(HashMap::from([
+                    ("operation".to_string(), json!("by_key")),
+                    ("key".to_string(), json!("product.todo.brief")),
+                ])),
+                bind: None,
+                out: Some(HashMap::from([(
+                    "memory_analytics".to_string(),
+                    "result".to_string(),
+                )])),
+            },
+        ],
+        edges: Some(vec![
+            Edge {
+                from: "search_docs".to_string(),
+                to: "verify_claims".to_string(),
+            },
+            Edge {
+                from: "verify_claims".to_string(),
+                to: "persist_summary".to_string(),
+            },
+            Edge {
+                from: "persist_summary".to_string(),
+                to: "memory_insights".to_string(),
+            },
+        ]),
+        stop_conditions: Some(amp::internal::plan::ir::StopConditions {
+            max_nodes: Some(8),
+            min_confidence: Some(0.7),
+        }),
+    };
+
+    let scheduler = Scheduler;
+    let mut ctx = ExecutionContext::new();
+    ctx.tool_urls.insert("doc.search.local".to_string(), doc_url);
+    ctx.tool_urls
+        .insert("ground.verify".to_string(), verify_url);
+    ctx.tool_urls
+        .insert("mesh.mem.sqlite".to_string(), memory_url);
+    ctx.tool_urls
+        .insert("mesh.mem.analytics".to_string(), analytics_url);
+
+    let result_ctx = scheduler
+        .execute_plan(ctx, &plan)
+        .await
+        .expect("plan execution should succeed");
+
+    let analytics_value = result_ctx
+        .variables
+        .get("memory_analytics")
+        .expect("analytics output stored");
+    assert_eq!(
+        analytics_value
+            .get("success")
+            .and_then(|v| v.as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        analytics_value
+            .get("data")
+            .and_then(|v| v.get("key"))
+            .and_then(|v| v.as_str()),
+        Some("product.todo.brief")
+    );
+
+    for handle in [doc_handle, verify_handle, memory_handle, analytics_handle] {
+        handle.abort();
+    }
 }
 
 #[tokio::test]
@@ -694,6 +1088,8 @@ async fn test_end_to_end_plan_execution_with_http_tools() {
     let (verify_url, verify_handle) = spawn_verify_server(None).await;
     let memory_state: SharedMemoryState = Arc::new(Mutex::new(HashMap::new()));
     let (memory_url, memory_handle) = spawn_memory_server(memory_state.clone(), None).await;
+    let (analytics_url, analytics_handle) =
+        spawn_memory_analytics_server(memory_state.clone(), None).await;
 
     let plan = Plan {
         signals: Some(Signals {
@@ -764,6 +1160,21 @@ async fn test_end_to_end_plan_execution_with_http_tools() {
                 bind: None,
                 out: None,
             },
+            Node {
+                id: "memory_insights".to_string(),
+                op: Operation::Call,
+                tool: Some("mesh.mem.analytics".to_string()),
+                capability: None,
+                args: Some(HashMap::from([
+                    ("operation".to_string(), json!("by_key")),
+                    ("key".to_string(), json!("product.todo.brief")),
+                ])),
+                bind: None,
+                out: Some(HashMap::from([(
+                    "memory_analytics".to_string(),
+                    "result".to_string(),
+                )])),
+            },
         ],
         edges: Some(vec![
             Edge {
@@ -773,6 +1184,10 @@ async fn test_end_to_end_plan_execution_with_http_tools() {
             Edge {
                 from: "verify_claims".to_string(),
                 to: "persist_summary".to_string(),
+            },
+            Edge {
+                from: "persist_summary".to_string(),
+                to: "memory_insights".to_string(),
             },
         ]),
         stop_conditions: Some(amp::internal::plan::ir::StopConditions {
@@ -789,6 +1204,8 @@ async fn test_end_to_end_plan_execution_with_http_tools() {
         .insert("ground.verify".to_string(), verify_url.clone());
     ctx.tool_urls
         .insert("mesh.mem.sqlite".to_string(), memory_url.clone());
+    ctx.tool_urls
+        .insert("mesh.mem.analytics".to_string(), analytics_url.clone());
 
     let result_ctx = scheduler
         .execute_plan(ctx, &plan)
@@ -802,6 +1219,7 @@ async fn test_end_to_end_plan_execution_with_http_tools() {
         .trace_events
         .iter()
         .any(|trace| trace.event_type == "evidence_summary"));
+    assert!(result_ctx.variables.contains_key("memory_analytics"));
 
     let store = memory_state.lock().await;
     let record = store
@@ -813,6 +1231,7 @@ async fn test_end_to_end_plan_execution_with_http_tools() {
     doc_handle.abort();
     verify_handle.abort();
     memory_handle.abort();
+    analytics_handle.abort();
 
     println!("End-to-end plan execution with HTTP tools passed");
 }
@@ -1081,14 +1500,20 @@ async fn test_capability_routing_selects_registered_tool() {
 async fn test_kernel_api_execute_plan_end_to_end() {
     let memory_state: SharedMemoryState = Arc::new(Mutex::new(HashMap::new()));
 
+    let prev_tool_config = std::env::var("AMP_TOOL_CONFIG").ok();
+    std::env::set_var("AMP_TOOL_CONFIG", "../config/tools.json");
+
     let (doc_url, doc_handle) = spawn_doc_search_server(Some(7401)).await;
     let (verify_url, verify_handle) = spawn_verify_server(Some(7402)).await;
     let (memory_url, memory_handle) = spawn_memory_server(memory_state.clone(), Some(7403)).await;
+    let (analytics_url, analytics_handle) =
+        spawn_memory_analytics_server(memory_state.clone(), Some(7407)).await;
 
     // Ensure the URLs match the kernel defaults
     assert!(doc_url.ends_with("7401"));
     assert!(verify_url.ends_with("7402"));
     assert!(memory_url.ends_with("7403"));
+    assert!(analytics_url.ends_with("7407"));
 
     let kernel_app = amp::internal::api::create_router();
     let kernel_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1168,6 +1593,21 @@ async fn test_kernel_api_execute_plan_end_to_end() {
                 bind: None,
                 out: None,
             },
+            Node {
+                id: "memory_insights".to_string(),
+                op: Operation::Call,
+                tool: Some("mesh.mem.analytics".to_string()),
+                capability: None,
+                args: Some(HashMap::from([
+                    ("operation".to_string(), json!("by_key")),
+                    ("key".to_string(), json!("product.todo.brief")),
+                ])),
+                bind: None,
+                out: Some(HashMap::from([(
+                    "memory_analytics".to_string(),
+                    "result".to_string(),
+                )])),
+            },
         ],
         edges: Some(vec![
             Edge {
@@ -1177,6 +1617,10 @@ async fn test_kernel_api_execute_plan_end_to_end() {
             Edge {
                 from: "verify_claims".to_string(),
                 to: "persist_summary".to_string(),
+            },
+            Edge {
+                from: "persist_summary".to_string(),
+                to: "memory_insights".to_string(),
             },
         ]),
         stop_conditions: Some(amp::internal::plan::ir::StopConditions {
@@ -1198,8 +1642,18 @@ async fn test_kernel_api_execute_plan_end_to_end() {
         .await
         .expect("plan execute request failed");
 
-    assert!(response.status().is_success());
-    let body: serde_json::Value = response.json().await.expect("invalid response body");
+    let status = response.status();
+    let body_text = response
+        .text()
+        .await
+        .expect("failed to read execute response body");
+    assert!(
+        status.is_success(),
+        "plan execute returned {:?}: {}",
+        status,
+        body_text
+    );
+    let body: serde_json::Value = serde_json::from_str(&body_text).expect("invalid response body");
     let plan_id = body
         .get("plan_id")
         .and_then(|v| v.as_str())
@@ -1213,6 +1667,21 @@ async fn test_kernel_api_execute_plan_end_to_end() {
         .await
         .expect("trace request failed");
     assert!(trace_response.status().is_success());
+    let trace_body: serde_json::Value = trace_response.json().await.expect("invalid trace body");
+    let analytics_trace_seen = trace_body
+        .get("traces")
+        .and_then(|v| v.as_array())
+        .map(|traces| {
+            traces.iter().any(|trace| {
+                trace
+                    .get("data")
+                    .and_then(|d| d.get("tool"))
+                    .and_then(|t| t.as_str())
+                    == Some("mesh.mem.analytics")
+            })
+        })
+        .unwrap_or(false);
+    assert!(analytics_trace_seen, "analytics step trace missing");
 
     // Verify memory write succeeded with expected confidence
     let store = memory_state.lock().await;
@@ -1223,9 +1692,16 @@ async fn test_kernel_api_execute_plan_end_to_end() {
 
     drop(store);
 
+    if let Some(value) = prev_tool_config {
+        std::env::set_var("AMP_TOOL_CONFIG", value);
+    } else {
+        std::env::remove_var("AMP_TOOL_CONFIG");
+    }
+
     doc_handle.abort();
     verify_handle.abort();
     memory_handle.abort();
+    analytics_handle.abort();
     kernel_handle.abort();
 
     println!("Kernel API end-to-end execution test passed");

@@ -33,8 +33,8 @@ This tracker mirrors `fix1.md` and the self-evolving PRD, breaking remaining mil
 - ✅ **P5-3 Decision Trace Annotations** – Record optimizer/routing decisions with rationale in trace payloads.
 
 ## Phase 6 – Memory as Moat
-- ⏳ **P6-1 Memory Schema Enforcement** – Add TTL/provenance tables & migration; enforce at adapter + kernel level.
-- ⏳ **P6-2 Memory Analytics ToolSpec** – Provide analytics tooling (top contradicted claims, lifecycle reports) consumable by plans.
+- ✅ **P6-1 Memory Schema Enforcement** – Add TTL/provenance tables & migration; enforce at adapter + kernel level.
+- ✅ **P6-2 Memory Analytics ToolSpec** – Provide analytics tooling (top contradicted claims, lifecycle reports) consumable by plans.
 - ⏳ **P6-3 Replay Bundles with Memory** – Finish `/v1/replay/bundle` to include plan, ToolSpecs, traces, and relevant memory diffs.
 
 ## Phase 7 – Production Polish

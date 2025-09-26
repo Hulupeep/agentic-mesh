@@ -1002,14 +1002,23 @@ impl Scheduler {
                 })
             });
 
-        let confidence = node
+        let mut confidence = node
             .args
             .as_ref()
             .and_then(|args| args.get("confidence"))
             .map(|value| ctx.resolve_value(value))
             .and_then(|value| value.as_f64());
 
+        let ttl = node
+            .args
+            .as_ref()
+            .and_then(|args| args.get("ttl"))
+            .map(|value| ctx.resolve_value(value))
+            .and_then(|value| value.as_str().map(|s| s.to_string()));
+
         let resolution = ctx.resolve_tool(node)?;
+        let resolved_args = ctx.resolve_args(node.args.as_ref());
+        ctx.enforce_tool_policy(&resolution.tool_name, resolved_args.as_ref())?;
 
         let mut evidence_summary_json = None;
 
@@ -1030,6 +1039,10 @@ impl Scheduler {
                         e
                     )));
                 }
+
+                if summary.mean_confidence.is_finite() && summary.mean_confidence > 0.0 {
+                    confidence = Some(summary.mean_confidence);
+                }
             }
         } else if let Some(conf) = confidence {
             if conf < 0.8 {
@@ -1040,6 +1053,31 @@ impl Scheduler {
             }
         }
 
+        let provenance = provenance.ok_or_else(|| {
+            ExecutionError::ValidationError(
+                "Memory write operation requires non-empty provenance".to_string(),
+            )
+        })?;
+
+        if provenance.is_empty() {
+            return Err(ExecutionError::ValidationError(
+                "Memory write operation requires non-empty provenance".to_string(),
+            ));
+        }
+
+        let confidence = confidence.ok_or_else(|| {
+            ExecutionError::ValidationError(
+                "Memory write operation requires confidence >= 0.8".to_string(),
+            )
+        })?;
+
+        if confidence < 0.8 {
+            return Err(ExecutionError::ValidationError(format!(
+                "Memory write rejected: confidence {} < 0.8 threshold",
+                confidence
+            )));
+        }
+
         let mem_store = crate::internal::mem::store::MemoryStore::new();
         let start = std::time::Instant::now();
         mem_store
@@ -1047,9 +1085,10 @@ impl Scheduler {
                 &resolution.tool_url,
                 key,
                 &value,
-                provenance.as_ref(),
-                confidence,
-                None,
+                Some(&provenance),
+                Some(confidence),
+                ttl.as_deref(),
+                evidence_summary_json.as_ref(),
             )
             .await
             .map_err(|e| {
