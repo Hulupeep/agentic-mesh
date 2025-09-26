@@ -1,6 +1,6 @@
 # Agentic Mesh Protocol (AMP)
 
-[![CI](https://github.com/acme/amp/actions/workflows/ci.yml/badge.svg)](https://github.com/acme/amp/actions/workflows/ci.yml)
+ 
 
 ## The Problem We Are Solving
 
